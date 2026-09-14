@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+
+# O dado bruto completo é volumoso (175 arquivos por coleta). Versiona-se
+# apenas uma amostra, exigida como "arquivo de exemplo" pelo enunciado.
+data/raw/*
+!data/raw/exemplo/
+data/processed/*.db
+PLANO_IMPLEMENTACAO.md
+exemplo.py
+Desafio Técnico - Ray Consunting.pdf
