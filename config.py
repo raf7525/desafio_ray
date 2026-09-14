@@ -2,7 +2,7 @@
 from datetime import date, timedelta
 
 UFS = ["PE", "BA", "CE", "SP", "MG"]   
-MODALIDADES = [6, 8]                   #6 = Pregão Eletrônico, 8 = Dispensa
+MODALIDADES = [6, 8]                   #6 = Pregão Eletrônico, 8 = Dispensa, coloquei esses tipos por serem os mais comuns
 DIAS_JANELA = 7
 TAMANHO_PAGINA = 50                    #aceitável de 10 até 50
 
