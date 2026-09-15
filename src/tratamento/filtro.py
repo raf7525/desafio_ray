@@ -134,3 +134,27 @@ def aplicar(df, config):
     contagem = df["destino"].value_counts().to_dict()
     logger.info("filtro por assunto: %s", contagem)
     return df
+
+
+def aplicar_valor_minimo(df, config):
+    """Corta por valor mínimo de interesse — etapa separada da relevância por
+    assunto, como o cabeçalho do módulo já reserva.
+
+    Só descarta quando o valor é conhecido e fica abaixo do piso: valor
+    ausente é comum em editais recém-publicados e não deve virar "sem
+    interesse" só por isso, então essas linhas mantêm o destino que o filtro
+    de assunto já deu.
+    """
+    if df.empty:
+        return df
+
+    df = df.copy()
+    abaixo_minimo = df["valor_estimado"].notna() & (df["valor_estimado"] < config.VALOR_MINIMO)
+    motivo = f"valor estimado abaixo do mínimo de R$ {config.VALOR_MINIMO:,.0f}".replace(",", ".")
+
+    df.loc[abaixo_minimo, "evidencia"] = df.loc[abaixo_minimo, "evidencia"] + "; " + motivo
+    df.loc[abaixo_minimo, "destino"] = DESCARTADO
+
+    contagem = df["destino"].value_counts().to_dict()
+    logger.info("corte por valor mínimo: %s", contagem)
+    return df

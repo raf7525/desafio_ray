@@ -1,10 +1,26 @@
 #Regras de negócio estão nesse arquivo, para evitar mexer na lógica se for adicionar algo
 from datetime import date, timedelta
 
-UFS = ["PE", "BA", "CE", "SP", "MG"]   
+UFS = ["PE", "BA", "CE", "SP", "MG"]
 MODALIDADES = [6, 8]                   #6 = Pregão Eletrônico, 8 = Dispensa
 DIAS_JANELA = 7
 TAMANHO_PAGINA = 50                    #aceitável de 10 até 50
+
+VALOR_MINIMO = 100_000                 #abaixo disso a oportunidade não interessa ao cliente
+
+#capital de cada UF priorizada, usada para dar peso extra na pontuação
+CAPITAIS = {
+    "PE": "Recife",
+    "BA": "Salvador",
+    "CE": "Fortaleza",
+    "SP": "São Paulo",
+    "MG": "Belo Horizonte",
+}
+
+#pesos da pontuação de prioridade comercial das aprovadas (ver src/tratamento/pontuacao.py)
+PESO_VALOR = 10          #multiplica o log10 do valor estimado
+BONUS_UF_PRIORITARIA = 15
+BONUS_CAPITAL = 20
 
 
 def janela_datas(dias=None, ate=None):
