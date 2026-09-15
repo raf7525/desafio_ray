@@ -7,20 +7,30 @@ para saúde pública, e separa o que merece atenção comercial do que é ruído
 De **8.554 licitações reais** analisadas numa janela de 7 dias, o filtro aponta
 **299 oportunidades** (3,5%) e isola **157 casos ambíguos** para revisão humana.
 
+Uma execução produz duas entregas prontas para uso:
+[`output/oportunidades.xlsx`](output/oportunidades.xlsx) e
+[`output/alerta.html`](output/alerta.html).
+
 ---
 
-## Estado atual
+## O pipeline
 
-Este repositório está em construção. O que já funciona:
+```
+API do PNCP  ──>  data/raw/*.json  ──>  tabela tratada  ──>  filtro  ──>  SQLite
+                  (bruto, intocado)                                        │
+                                                                           ├──>  oportunidades.xlsx
+                                                                           └──>  alerta.html
+```
 
-| Etapa | Situação |
+| Etapa | Onde |
 |---|---|
-| Coleta da API com paginação, retry e persistência do bruto | ✅ pronto |
-| Tratamento: achatamento, tipagem, deduplicação | ✅ pronto |
-| Filtro de relevância por assunto (palavras-chave) | ✅ pronto |
-| Corte por valor mínimo (R$ 100.000) | ⏳ pendente |
-| Persistência estruturada (SQLite) | ⏳ pendente |
-| Planilha `.xlsx` e e-mail `.html` | ⏳ pendente |
+| Coleta paginada, com retry e persistência do bruto | [`src/coleta/pncp_client.py`](src/coleta/pncp_client.py) |
+| Achatamento, tipagem e deduplicação | [`src/tratamento/parser.py`](src/tratamento/parser.py) |
+| Filtro de relevância por assunto e corte por valor mínimo | [`src/tratamento/filtro.py`](src/tratamento/filtro.py) |
+| Pontuação de prioridade comercial | [`src/tratamento/pontuacao.py`](src/tratamento/pontuacao.py) |
+| Persistência estruturada em SQLite | [`src/persistencia/banco.py`](src/persistencia/banco.py) |
+| Planilha `.xlsx` | [`src/entregas/planilha.py`](src/entregas/planilha.py) |
+| E-mail de alerta HTML | [`src/entregas/email_html.py`](src/entregas/email_html.py) |
 
 ---
 
@@ -44,14 +54,26 @@ atendido por construção.
 ### Opções
 
 ```bash
-python main.py                            # coleta a janela padrão (7 dias) e filtra
+python main.py                            # coleta a janela padrão (7 dias) e gera tudo
 python main.py --dias 30                  # janela maior
-python main.py --reprocessar data/raw/2026-09-13   # relê o disco, sem tocar na API
+python main.py --reprocessar data/raw/exemplo      # relê o disco, sem tocar na API
+python main.py --saida entregas_semana    # outro diretório para .xlsx e .html
+python main.py --destaques 20             # quantas oportunidades o e-mail mostra
 ```
 
-O `--reprocessar` existe por um motivo prático: a coleta de 7 dias leva
-**~12 minutos** (175 requisições). Reprocessar o bruto já salvo leva **1 segundo**.
-Todo o ajuste das palavras-chave foi feito por essa rota.
+**Para ver o projeto funcionando em 1 segundo, sem esperar a coleta:**
+
+```bash
+python main.py --reprocessar data/raw/exemplo
+```
+
+Isso usa a amostra versionada no repositório e gera as duas entregas em
+`output/`. Ao final, o terminal imprime onde cada arquivo foi gravado.
+
+O `--reprocessar` existe por um motivo prático: uma coleta de 7 dias são 175
+requisições à API  minutos de espera, mesmo com as fatias rodando em paralelo.
+Reprocessar o bruto já salvo leva **1 segundo**. Todo o ajuste das palavras-chave
+foi feito por essa rota.
 
 > **Se `python3 -m venv` falhar** com "ensurepip is not available" (comum em
 > Debian/Ubuntu/WSL), instale `apt install python3-venv` ou crie o ambiente com
@@ -65,20 +87,27 @@ Todo o ajuste das palavras-chave foi feito por essa rota.
 ```
 Desafio_ray/
 ├── main.py                     Orquestra o pipeline; --reprocessar pula a API
-├── config.py                   TODA a regra de negócio: UFs, modalidades,
-│                               janela e as 4 listas de palavras-chave
+├── config.py                   TODA a regra de negócio: UFs, modalidades, janela,
+│                               pesos da pontuação e as 4 listas de palavras-chave
 ├── requirements.txt
 ├── src/
 │   ├── coleta/
 │   │   └── pncp_client.py      Requisições, paginação, retry, gravação do bruto
-│   └── tratamento/
-│       ├── parser.py           JSON aninhado -> tabela plana, tipada, sem duplicatas
-│       └── filtro.py           Classificação por assunto (aprovado/revisar/descartado)
+│   ├── tratamento/
+│   │   ├── parser.py           JSON aninhado -> tabela plana, tipada, sem duplicatas
+│   │   ├── filtro.py           Classificação por assunto (aprovado/revisar/descartado)
+│   │   │                       e corte por valor mínimo
+│   │   └── pontuacao.py        Ordena as aprovadas por prioridade comercial
+│   ├── persistencia/
+│   │   └── banco.py            SQLite: UPSERT por id_pncp, histórico entre execuções
+│   └── entregas/
+│       ├── planilha.py         .xlsx com 3 abas, formatado para uso direto
+│       └── email_html.py       E-mail de alerta, CSS inline, texto escapado
 ├── data/
 │   ├── raw/                    JSON bruto, um arquivo por página, sem transformação
 │   │   └── exemplo/            amostra versionada
-│   └── processed/              (reservado para a persistência estruturada)
-└── output/                     (reservado para .xlsx e .html)
+│   └── processed/              licitacoes.db (gerado; fora do controle de versão)
+└── output/                     oportunidades.xlsx e alerta.html
 ```
 
 A separação não é enfeite: as três partes mudam por razões diferentes. A coleta
@@ -220,7 +249,80 @@ sinônimos, não lê o anexo do edital e não sabe qual item do lote é o releva
 
 ---
 
+## As duas entregas
+
+### `output/oportunidades.xlsx`
+
+Três abas, porque três públicos diferentes olham o arquivo:
+
+| Aba | Para quem | Conteúdo |
+|---|---|---|
+| **Oportunidades** | vendedor | As aprovadas, da maior para a menor prioridade. É a lista de trabalho da semana. |
+| **Revisar** | analista | Os conflitos que o filtro se recusou a decidir sozinho, com as palavras-chave que colidiram. |
+| **Resumo** | gestor | Quantas foram analisadas, aprovadas, descartadas; valor somado; distribuição por UF. |
+
+A planilha é entregue **pronta para uso**, não como dump: cabeçalho congelado,
+filtro automático, largura de coluna ajustada, valor em formato de moeda, data em
+`dd/mm/aaaa` e o link do edital clicável.
+
+A coluna **`Por que entrou`** aparece nas duas primeiras abas. É o que torna a
+discordância útil: *"esta aqui não interessa, e o motivo que o robô deu foi
+`produto genérico (equipamento) em contexto de saúde`"* é um feedback que ajusta
+a lista de palavras-chave. *"O robô errou"* não é.
+
+### `output/alerta.html`
+
+O e-mail é a **isca**, não o relatório. Mostra os números da semana, as 10
+melhores oportunidades em cartões (órgão, objeto, valor, prazo e link) e manda o
+resto para a planilha. Um e-mail com 299 linhas não é lido; um com as 10 mais
+relevantes e o total, sim.
+
+Duas restrições moldaram a implementação:
+
+- **Cliente de e-mail não é navegador.** Gmail e Outlook removem `<style>` e
+  ignoram flexbox e grid. O layout é feito com `<table>` aninhada e todo o CSS
+  vai inline. É deselegante de escrever e é o que renderiza igual em todo lugar.
+- **Todo texto vem da API.** `objeto` e `orgao` são campos livres preenchidos por
+  servidores de milhares de prefeituras. Tudo passa por `html.escape` antes de
+  entrar no template — sem isso, um `<` no texto de um edital quebraria o layout,
+  e um edital malicioso injetaria HTML no e-mail de todo mundo.
+
+> **O e-mail é gerado como arquivo, não enviado.** Enviar de verdade exigiria
+> host, usuário e senha de SMTP, e o enunciado proíbe credenciais no repositório.
+> O entregável pedido é o `.html` de exemplo; o envio seria uma chamada de
+> `smtplib` lendo variáveis de ambiente, e preferi não adicionar código que não
+> consigo demonstrar rodando.
+
+---
+
 ## Decisões técnicas e porquês
+
+### Por que SQLite e não CSV para o dado tratado
+
+O enunciado permite banco **ou** arquivo estruturado, pedindo justificativa. Optei
+pelo banco por uma razão específica do problema: **a entrega é um alerta
+periódico**.
+
+Execuções sucessivas cobrem janelas de data que se sobrepõem — rodar toda
+segunda-feira com janela de 7 dias significa reencontrar as mesmas licitações
+várias vezes. Com `id_pncp` como chave primária, o `INSERT ... ON CONFLICT DO
+UPDATE` resolve a duplicidade **entre execuções** sem custo nenhum. Um CSV
+exigiria reler e reconciliar o arquivo inteiro a cada rodada, reimplementando à
+mão o que o banco já faz.
+
+O ganho concreto está na coluna `vista_em`, que guarda a **primeira** aparição de
+cada licitação e nunca é sobrescrita. É ela que permite responder *"o que é novo
+desde a semana passada"* — que é a pergunta que um alerta periódico existe para
+responder. Com CSV, essa informação simplesmente não existiria.
+
+**SQLite e não Postgres** porque é biblioteca padrão do Python: zero dependências
+a instalar, zero servidor a subir, e o banco inteiro é um arquivo. Para um volume
+de milhares de linhas por semana, um servidor de banco seria infraestrutura sem
+contrapartida. Se o projeto crescesse para múltiplos clientes com escrita
+concorrente, aí sim a troca se justificaria.
+
+O banco recebe a **tabela inteira**, não só as aprovadas. O descartado de hoje é a
+evidência de por que o filtro decidiu assim, quando alguém questionar amanhã.
 
 ### Por que JSON e não CSV para o dado bruto
 
@@ -244,10 +346,17 @@ anteriores estão no disco); e **reprocessamento** (ajustar o filtro sem esperar
 ### Como a duplicidade é evitada
 
 `numeroControlePNCP` é o identificador único do próprio PNCP  não uma
-combinação improvisada de campos. O `drop_duplicates` sobre ele está em
-[`parser.py`](src/tratamento/parser.py), e é necessário porque a mesma contratação
-pode cair em mais de uma fatia da coleta e porque reexecuções sobrepõem janelas
-de data.
+combinação improvisada de campos. A deduplicação acontece em duas camadas, porque
+são dois problemas diferentes:
+
+| Camada | Onde | Resolve |
+|---|---|---|
+| `drop_duplicates` | [`parser.py`](src/tratamento/parser.py) | A mesma contratação caindo em mais de uma fatia **da mesma coleta** |
+| `ON CONFLICT DO UPDATE` | [`banco.py`](src/persistencia/banco.py) | A mesma contratação reaparecendo **entre execuções**, por sobreposição de janela |
+
+A primeira sozinha não bastaria: ela só enxerga a rodada atual. A segunda sozinha
+funcionaria, mas faria o banco trabalhar à toa com milhares de linhas repetidas
+que já dava para descartar em memória.
 
 ### Como os erros são tratados
 
@@ -284,8 +393,13 @@ na prática.
 chamada.** Isso transforma a coleta num produto cartesiano UF × modalidade ×
 página  a razão de o volume crescer tão rápido.
 
-**4. Volume.** 7 dias × 5 UFs × 2 modalidades = 175 páginas e ~12 minutos. Uma
-janela de 30 dias passaria de 700 páginas e ~50 minutos.
+**4. Volume.** 7 dias × 5 UFs × 2 modalidades = 175 páginas. Em sequência isso
+levava ~12 minutos, e uma janela de 30 dias passaria de 700 páginas. A solução
+foi paralelizar por fatia: como cada combinação UF × modalidade é independente
+(arquivos próprios, sem estado compartilhado) e o gargalo é espera de rede e não
+CPU, um `ThreadPoolExecutor` faz o tempo total virar o da fatia mais lenta em vez
+da soma de todas. A `Session` é compartilhada entre as threads porque o pool de
+conexões do `urllib3` por baixo do `requests` já é thread-safe.
 
 **5. `valorTotalEstimado` vem `null` *e* vem `0.00`.** O caso do zero é o
 traiçoeiro: não é capturado por `isna()`, então passa direto pela verificação de
@@ -298,6 +412,31 @@ exatamente o tipo de contrato que interessa ao cliente.
  seriam textos diferentes. A normalização converte pontuação em espaço, o que
 faz as duas grafias virarem a mesma coisa.
 
+**7. HTML de e-mail é uma tecnologia parada em 2005.** Gmail e Outlook descartam
+a tag `<style>` e não suportam flexbox nem grid  o layout precisa ser feito com
+`<table>` aninhada e CSS inline em cada elemento. Descobrir isso depois de já ter
+escrito o template com CSS moderno custou uma reescrita inteira.
+
+**8. O driver do `sqlite3` não aceita tipos do NumPy.** `numpy.int64`,
+`numpy.bool_` e `numpy.float64` vêm direto do DataFrame e estouram
+`InterfaceError: Error binding parameter`. O mesmo vale para `pd.Timestamp` e
+`pd.NaT`. Cada valor precisa passar por uma conversão explícita para tipo nativo
+do Python antes de ir para o banco  o `.item()` dos escalares do NumPy resolve,
+mas só depois de tratar `NaT` e `NaN` separadamente, porque eles sobrevivem à
+conversão e viram lixo no lugar de `NULL`.
+
+---
+
+## Capturas de tela
+
+### Planilha  aba *Oportunidades*
+
+![Planilha gerada](docs/planilha.png)
+
+### E-mail de alerta
+
+![E-mail de alerta](docs/email.png)
+
 ---
 
 ## O que faria diferente com mais tempo
@@ -305,8 +444,13 @@ faz as duas grafias virarem a mesma coisa.
 - **Busca semântica por embeddings** no lugar de correspondência literal.
   Resolveria sinônimos, siglas e o problema da negação, e capturaria
   "RIS/PACS" ou "sistema de laudos" sem precisar antecipar cada grafia.
-- **Coleta incremental** por data da última execução, em vez de rebaixar a janela
-  inteira toda vez.
+- **Coleta incremental** usando o `vista_em` do banco para consultar só o
+  intervalo ainda não coberto, em vez de rebaixar a janela inteira toda vez. A
+  estrutura para isso já existe; faltou o recorte na chamada da API.
+- **Separar "novas" de "já vistas" no alerta.** O banco já sabe quais licitações
+  são inéditas (`vista_em` = hoje), mas o e-mail ainda mostra todas as aprovadas.
+  Destacar só o que mudou desde a última execução é o próximo passo óbvio de um
+  alerta periódico  e o de maior retorno para quem recebe.
 - **Classificar o lote, não o edital.** A API tem endpoints de itens; descer a
   esse nível resolveria o caso do lote misto, hoje a maior fonte de falso negativo.
 - **Painel de refinamento** para o time comercial marcar aprovações erradas,
