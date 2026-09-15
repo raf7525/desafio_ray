@@ -1,5 +1,8 @@
+#aqui acontece a extração de dados, lincado direto com o PNCP
+
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
@@ -8,17 +11,18 @@ from urllib3.util.retry import Retry
 
 URL = "https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao"
 
-TAMANHO_MAX_PAGINA = 50
-TAMANHO_MIN_PAGINA = 10
+
+TAMANHO_PAGINA_MIN = 10
+TAMANHO_PAGINA_MAX = 50
 
 logger = logging.getLogger(__name__)
 
 
 def criar_sessao():
     sessao = requests.Session()
-    retry = Retry(
+    retry = Retry(#ajuda a caso algum erro ocorra ele continua tentando
         total=5,
-        backoff_factor=1,
+        backoff_factor=1,  # espera 1s, 2s, 4s, 8s, 16s entre tentativas
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=["GET"],
     )
@@ -27,42 +31,31 @@ def criar_sessao():
     return sessao
 
 
-def coletar_pagina(
-    sessao, uf, modalidade, data_ini, data_fim, pagina, tamanho, municipio=None
-):
-    if not TAMANHO_MIN_PAGINA <= tamanho <= TAMANHO_MAX_PAGINA:
+def coletar_pagina(sessao, uf, modalidade, data_ini, data_fim, pagina, tamanho):
+    #Coleta uma página de resultados da API do PNCP.
+    if not TAMANHO_PAGINA_MIN <= tamanho <= TAMANHO_PAGINA_MAX:
         raise ValueError(
-            f"tamanho de paginas deve estar entre {TAMANHO_MIN_PAGINA} e "
-            f"{TAMANHO_MAX_PAGINA}; recebido {tamanho}"
+            f"tamanhoPagina deve estar entre {TAMANHO_PAGINA_MIN} e "
+            f"{TAMANHO_PAGINA_MAX}; recebido {tamanho}"
         )
 
     resp = sessao.get(
         URL,
         params={
-            "dataInicial": data_ini,
+            "dataInicial": data_ini,       # formato AAAAMMDD, sem hífens
             "dataFinal": data_fim,
+            "codigoModalidadeContratacao": modalidade,  # um valor por chamada
             "uf": uf,
             "pagina": pagina,
             "tamanhoPagina": tamanho,
-            "codigoModalidadeContratacao": modalidade,
-            "codigoMunicipioIbge": municipio,
         },
         timeout=60,
     )
-
-    if resp.status_code == 204 or not resp.content:
-        return None
-
     resp.raise_for_status()
     return resp.json()
 
 
-def coletar_fatia(
-    sessao, uf, modalidade, data_ini, data_fim, dir_raw, tamanho, municipio=None
-):
-    dir_raw = Path(dir_raw)
-    dir_raw.mkdir(parents=True, exist_ok=True)
-
+def coletar_fatia(sessao, uf, modalidade, data_ini, data_fim, dir_raw, tamanho):
     registros = []
     pagina = 1
     total_paginas = None
@@ -70,39 +63,72 @@ def coletar_fatia(
     while True:
         try:
             payload = coletar_pagina(
-                sessao, uf, modalidade, data_ini, data_fim, pagina, tamanho, municipio
+                sessao, uf, modalidade, data_ini, data_fim, pagina, tamanho
             )
         except requests.RequestException as erro:
+            # Falha persistente mesmo após os retries: registra e abandona só a fatia em vez do programa inteiro.
             logger.error(
-                "falha em %s/mod%s pag%s, fatia abandonada: %s",
+                "falha em %s/mod%s pág%s  fatia abandonada: %s",
                 uf, modalidade, pagina, erro,
             )
             break
 
-        if payload is None:
-            break
-
-        dados = payload.get("data") or []
-
         if total_paginas is None:
-            total_paginas = payload.get("totalPaginas") or 0
+            total_paginas = payload["totalPaginas"]
             logger.info(
-                "%s/mod%-2s %6s registros em %3s paginas",
-                uf, modalidade, payload.get("totalRegistros", "?"), total_paginas,
+                "%s/mod%-2s %6s registros em %3s páginas",
+                uf, modalidade, payload["totalRegistros"], total_paginas,
             )
 
-        if not dados:
-            break
-
-        destino = dir_raw / f"{uf}_mod{modalidade}_{data_ini}_pag{pagina:03d}.json"
+        # Grava o bruto ANTES  de qualquer processamento. Uma página por arquivo:
+        # se a coleta cair na página 200, as 199 anteriores continuam no disco.
+        destino = dir_raw / f"{uf}_mod{modalidade}_pag{pagina:03d}.json"
         destino.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
-        registros.extend(dados)
+        registros.extend(payload["data"])
 
-        if total_paginas and pagina >= total_paginas:
+        if len(payload["data"]) == 0 or pagina >= total_paginas:
             break
+
         pagina += 1
 
+    return registros
+
+
+def coletar_tudo(ufs, modalidades, data_ini, data_fim, dir_raw,
+                 tamanho=TAMANHO_PAGINA_MAX, max_workers=5):
+    
+    dir_raw = Path(dir_raw)
+    dir_raw.mkdir(parents=True, exist_ok=True)
+    sessao = criar_sessao()
+
+    combinacoes = [(uf, modalidade) for uf in ufs for modalidade in modalidades]
+
+    registros = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futuros = {
+            executor.submit(coletar_fatia, sessao, uf, modalidade, data_ini,
+                             data_fim, dir_raw, tamanho): (uf, modalidade)
+            for uf, modalidade in combinacoes
+        }
+        for futuro in as_completed(futuros):
+            uf, modalidade = futuros[futuro]
+            try:
+                registros.extend(futuro.result())
+            except Exception:
+                logger.exception("falha inesperada em %s/mod%s", uf, modalidade)
+
+    logger.info("coleta concluída: %s registros brutos", len(registros))
+    return registros
+
+
+def carregar_bruto(dir_raw):
+    dir_raw = Path(dir_raw)
+    registros = []
+    for arquivo in sorted(dir_raw.glob("*.json")):
+        payload = json.loads(arquivo.read_text(encoding="utf-8"))
+        registros.extend(payload["data"])
+    logger.info("%s registros relidos de %s", len(registros), dir_raw)
     return registros
