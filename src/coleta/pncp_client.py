@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 def criar_sessao():
     sessao = requests.Session()
     retry = Retry(#ajuda a caso algum erro ocorra ele continua tentando
-        total=5,
-        backoff_factor=1,  # espera 1s, 2s, 4s, 8s, 16s entre tentativas
+        total=8,
+        backoff_factor=3,  # espera 1s, 2s, 4s, 8s, 16s entre tentativas
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=["GET"],
     )
@@ -98,7 +98,7 @@ def coletar_fatia(sessao, uf, modalidade, data_ini, data_fim, dir_raw, tamanho):
 
 
 def coletar_tudo(ufs, modalidades, data_ini, data_fim, dir_raw,
-                 tamanho=TAMANHO_PAGINA_MAX, max_workers=5):
+                 tamanho=TAMANHO_PAGINA_MAX, max_workers=2):
     
     dir_raw = Path(dir_raw)
     dir_raw.mkdir(parents=True, exist_ok=True)
