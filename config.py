@@ -6,6 +6,21 @@ MODALIDADES = [6, 8]                   #6 = Pregão Eletrônico, 8 = Dispensa, c
 DIAS_JANELA = 7
 TAMANHO_PAGINA = 50                    #aceitável de 10 até 50
 
+VALOR_MINIMO = 100_000                 #abaixo disso a oportunidade não interessa ao cliente
+
+
+CAPITAIS = {
+    "PE": "Recife",
+    "BA": "Salvador",
+    "CE": "Fortaleza",
+    "SP": "São Paulo",
+    "MG": "Belo Horizonte",
+}
+
+PESO_VALOR = 10          
+BONUS_UF_PRIORITARIA = 15
+BONUS_CAPITAL = 20
+
 
 def janela_datas(dias=None, ate=None):
     fim = ate or date.today()
