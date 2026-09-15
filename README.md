@@ -120,9 +120,19 @@ rede  e foi o que tornou viável iterar cinco vezes sobre as palavras-chave.
 
 ## Como o filtro foi definido
 
-As listas **não foram escritas por suposição**. Coletei primeiro um corpus de
-8.554 licitações reais (5 UFs, modalidades 6 e 8, 175 páginas) e desenhei as
-regras medindo contra ele.
+O perfil do cliente tem três critérios, e cada um é aplicado num ponto diferente
+do pipeline  não por acaso, mas porque agir cedo custa menos:
+
+| Critério | Onde é aplicado | Por que ali |
+|---|---|---|
+| **UF** (PE, BA, CE, SP, MG) | na **chamada à API**, via parâmetro `uf` | A API filtra na origem. Baixar o Brasil inteiro para descartar 22 estados depois seria desperdiçar minutos de rede a cada execução. |
+| **Assunto** (palavras-chave) | em memória, [`filtro.py`](src/tratamento/filtro.py) | A API **não tem busca por texto**. Não há alternativa: o objeto da contratação precisa ser analisado no nosso código. |
+| **Valor mínimo** (R$ 100.000) | em memória, depois do assunto | A API também não filtra por valor. Fica depois do assunto para que a evidência registre *os dois* motivos quando ambos se aplicam. |
+
+O resto desta seção trata do critério difícil: o de assunto. As listas **não
+foram escritas por suposição**. Coletei primeiro um corpus de 8.554 licitações
+reais (5 UFs, modalidades 6 e 8, 175 páginas) e desenhei as regras medindo contra
+ele.
 
 ### Descoberta 1  casamento por substring é inutilizável
 
