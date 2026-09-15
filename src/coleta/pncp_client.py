@@ -2,6 +2,7 @@
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
@@ -18,13 +19,8 @@ logger = logging.getLogger(__name__)
 
 
 def criar_sessao():
-    """Sessão HTTP com retry automático para falhas transitórias.
-
-    O PNCP devolve 5xx esporádico sob carga. Sem retry, uma coleta de ~2.000
-    requisições quase sempre morre no meio por um erro passageiro.
-    """
     sessao = requests.Session()
-    retry = Retry(
+    retry = Retry(#ajuda a caso algum erro ocorra ele continua tentando
         total=5,
         backoff_factor=1,  # espera 1s, 2s, 4s, 8s, 16s entre tentativas
         status_forcelist=[429, 500, 502, 503, 504],
@@ -36,7 +32,7 @@ def criar_sessao():
 
 
 def coletar_pagina(sessao, uf, modalidade, data_ini, data_fim, pagina, tamanho):
-    """Busca uma página. Devolve o payload, ou None quando não há mais dados."""
+    #Coleta uma página de resultados da API do PNCP.
     if not TAMANHO_PAGINA_MIN <= tamanho <= TAMANHO_PAGINA_MAX:
         raise ValueError(
             f"tamanhoPagina deve estar entre {TAMANHO_PAGINA_MIN} e "
@@ -55,22 +51,17 @@ def coletar_pagina(sessao, uf, modalidade, data_ini, data_fim, pagina, tamanho):
         },
         timeout=60,
     )
-
-    # A API sinaliza o fim da paginação com 204 e corpo VAZIO  não com 200 e
-    # lista vazia. Chamar resp.json() num 204 estoura JSONDecodeError.
-    if resp.status_code == 204:
-        return None
-
     resp.raise_for_status()
+
+    # A API sinaliza "sem resultados" com 204 e corpo vazio, não com 200 e lista
+    # vazia. Sem esta checagem, .json() estoura JSONDecodeError.
+    if resp.status_code == 204 or not resp.content:
+        return {"data": [], "totalRegistros": 0, "totalPaginas": 0}
+
     return resp.json()
 
 
 def coletar_fatia(sessao, uf, modalidade, data_ini, data_fim, dir_raw, tamanho):
-    """Percorre todas as páginas de uma combinação UF × modalidade.
-
-    Grava cada página como um arquivo bruto assim que chega e devolve os
-    registros acumulados.
-    """
     registros = []
     pagina = 1
     total_paginas = None
@@ -81,15 +72,11 @@ def coletar_fatia(sessao, uf, modalidade, data_ini, data_fim, dir_raw, tamanho):
                 sessao, uf, modalidade, data_ini, data_fim, pagina, tamanho
             )
         except requests.RequestException as erro:
-            # Falha persistente mesmo após os retries: registra e abandona só
-            # esta fatia, em vez de derrubar a coleta inteira.
+            # Falha persistente mesmo após os retries: registra e abandona só a fatia em vez do programa inteiro.
             logger.error(
                 "falha em %s/mod%s pág%s  fatia abandonada: %s",
                 uf, modalidade, pagina, erro,
             )
-            break
-
-        if payload is None:
             break
 
         if total_paginas is None:
@@ -99,7 +86,10 @@ def coletar_fatia(sessao, uf, modalidade, data_ini, data_fim, dir_raw, tamanho):
                 uf, modalidade, payload["totalRegistros"], total_paginas,
             )
 
-        # Grava o bruto ANTES de qualquer processamento. Uma página por arquivo:
+        if not payload["data"]:
+            break
+
+        # Grava o bruto ANTES  de qualquer processamento. Uma página por arquivo:
         # se a coleta cair na página 200, as 199 anteriores continuam no disco.
         destino = dir_raw / f"{uf}_mod{modalidade}_pag{pagina:03d}.json"
         destino.write_text(
@@ -110,29 +100,43 @@ def coletar_fatia(sessao, uf, modalidade, data_ini, data_fim, dir_raw, tamanho):
 
         if pagina >= total_paginas:
             break
+
         pagina += 1
 
     return registros
 
 
 def coletar_tudo(ufs, modalidades, data_ini, data_fim, dir_raw,
-                 tamanho=TAMANHO_PAGINA_MAX):
+                 tamanho=TAMANHO_PAGINA_MAX, max_workers=5):
     """Produto cartesiano UF × modalidade × página.
 
     O laço existe porque a API aceita apenas UMA modalidade por chamada e
-    devolve no máximo 50 registros por página.
+    devolve no máximo 50 registros por página. Cada combinação UF/modalidade
+    é uma fatia independente (arquivos próprios, sem estado compartilhado),
+    então roda em threads: o gargalo é a espera de rede, não CPU, então o
+    tempo total passa a ser o da fatia mais lenta em vez da soma de todas.
+    A sessão é compartilhada entre as threads porque o pool de conexões do
+    urllib3 por baixo do requests.Session já é thread-safe.
     """
     dir_raw = Path(dir_raw)
     dir_raw.mkdir(parents=True, exist_ok=True)
     sessao = criar_sessao()
 
+    combinacoes = [(uf, modalidade) for uf in ufs for modalidade in modalidades]
+
     registros = []
-    for uf in ufs:
-        for modalidade in modalidades:
-            registros.extend(
-                coletar_fatia(sessao, uf, modalidade, data_ini, data_fim,
-                              dir_raw, tamanho)
-            )
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futuros = {
+            executor.submit(coletar_fatia, sessao, uf, modalidade, data_ini,
+                             data_fim, dir_raw, tamanho): (uf, modalidade)
+            for uf, modalidade in combinacoes
+        }
+        for futuro in as_completed(futuros):
+            uf, modalidade = futuros[futuro]
+            try:
+                registros.extend(futuro.result())
+            except Exception:
+                logger.exception("falha inesperada em %s/mod%s", uf, modalidade)
 
     logger.info("coleta concluída: %s registros brutos", len(registros))
     return registros
