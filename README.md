@@ -375,7 +375,10 @@ que já dava para descartar em memória.
   passageiro.
 - **Falha isolada por fatia**: se uma combinação UF × modalidade falhar mesmo
   após os retries, ela é registrada no log e abandonada  as outras continuam.
-- **HTTP 204 tratado explicitamente** (ver Dificuldades).
+  Esse mesmo `except` cobre a fatia sem resultados, porque o `JSONDecodeError`
+  do corpo vazio é subclasse de `RequestException` (ver Dificuldades).
+- **Parada pela lista de dados**, não pelo código de status: o loop encerra
+  quando `data` vem vazio ou quando `totalPaginas` é alcançado.
 
 ### Janela e modalidades padrão
 
@@ -390,9 +393,22 @@ oportunidades relevantes vivem nelas, e essa verificação é um próximo passo
 
 ## Dificuldades encontradas
 
-**1. A API sinaliza o fim da paginação com `HTTP 204` e corpo vazio**, não com
-`200` e lista vazia. Chamar `.json()` nessa resposta estoura `JSONDecodeError`.
-É a armadilha menos óbvia da integração e exige checagem explícita do status.
+**1. A API sinaliza ausência de resultados com `HTTP 204` e corpo vazio**, não com
+`200` e lista vazia. Verificado nos dois casos: página além da última e página 1
+de uma fatia sem nenhum resultado  ambas respondem `204` com 0 bytes. Chamar
+`.json()` nessa resposta estoura `JSONDecodeError`.
+
+A saída escolhida **não** foi checar o status. O loop lê `totalPaginas` da
+primeira resposta e para nele, então nunca pede uma página além do fim  o caso
+mais comum do 204 simplesmente não acontece. Resta a fatia completamente vazia,
+e aí o `JSONDecodeError` é subclasse de `RequestException`, então cai no mesmo
+tratamento de falha por fatia que já existe: registra no log e abandona **só
+aquela** combinação UF × modalidade, sem derrubar as outras.
+
+A condição de parada é `len(payload["data"]) == 0 or pagina >= total_paginas` 
+o array, não o código de status. A vantagem é não depender de um detalhe de
+protocolo que a documentação do PNCP não promete; a desvantagem é que uma fatia
+vazia aparece no log como erro, e não como "nenhum resultado".
 
 **2. `tamanhoPagina` tem mínimo *e* máximo.** Abaixo de 10 a API responde
 `400  "must be greater than or equal to 10"`; acima de 50, `400  "Tamanho de

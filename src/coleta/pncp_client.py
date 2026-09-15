@@ -52,12 +52,6 @@ def coletar_pagina(sessao, uf, modalidade, data_ini, data_fim, pagina, tamanho):
         timeout=60,
     )
     resp.raise_for_status()
-
-    # A API sinaliza "sem resultados" com 204 e corpo vazio, não com 200 e lista
-    # vazia. Sem esta checagem, .json() estoura JSONDecodeError.
-    if resp.status_code == 204 or not resp.content:
-        return {"data": [], "totalRegistros": 0, "totalPaginas": 0}
-
     return resp.json()
 
 
@@ -86,9 +80,6 @@ def coletar_fatia(sessao, uf, modalidade, data_ini, data_fim, dir_raw, tamanho):
                 uf, modalidade, payload["totalRegistros"], total_paginas,
             )
 
-        if not payload["data"]:
-            break
-
         # Grava o bruto ANTES  de qualquer processamento. Uma página por arquivo:
         # se a coleta cair na página 200, as 199 anteriores continuam no disco.
         destino = dir_raw / f"{uf}_mod{modalidade}_pag{pagina:03d}.json"
@@ -98,7 +89,7 @@ def coletar_fatia(sessao, uf, modalidade, data_ini, data_fim, dir_raw, tamanho):
 
         registros.extend(payload["data"])
 
-        if pagina >= total_paginas:
+        if len(payload["data"]) == 0 or pagina >= total_paginas:
             break
 
         pagina += 1
