@@ -22,16 +22,6 @@ API do PNCP ──> data/raw/*.json ──> tabela tratada ──> filtro ──
 Utilizei o Cloud na estruturação dos códigos, fazer o front-end do email e me ajudar a corrigir e complementar o ReadMe, a parte da lógica da aplicação foi feita por mim, sendo utilizado o cloud apenas para gerar códigos massivos como prints e configurações de palavras (nos arquivos config.py).
 
 
-
-
-
-
-
-
-
-
-
-
 ## Como executar do zero
 
 ```bash
@@ -327,10 +317,9 @@ tela só, seguem em quatro partes.
   coberto. A estrutura já existe; faltou o recorte na chamada da API.
 - **Separar "novas" de "já vistas" no alerta** — o banco já sabe quais são inéditas,
   mas o e-mail mostra todas as aprovadas. É o próximo passo de maior retorno.
-- **Classificar o lote, não o edital.** A API tem endpoints de itens; descer a esse
-  nível resolveria o lote misto, hoje a maior fonte de falso negativo.
+- **Otimiar a extração de dados" Buscaria maneiras mais rapidas de extrair os dados.
 - **Painel de refinamento** para o comercial marcar aprovações erradas, alimentando
   as listas com rótulos reais em vez de inspeção manual.
 - **Testes automatizados** do filtro com objetos rotulados, para refinar uma keyword
   sem quebrar outra silenciosamente.
-- **Medir as modalidades 4 e 9** antes de fixar o padrão em 6 e 8.
+
