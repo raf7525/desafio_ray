@@ -2,9 +2,7 @@
 __pycache__/
 *.pyc
 .env
-data/raw/*
-!data/raw/demo_pe/
-data/processed/*.db
+data/
 PLANO_IMPLEMENTACAO.md
 exemplo.py
 Desafio Técnico - Ray Consunting.pdf

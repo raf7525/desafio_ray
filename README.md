@@ -6,7 +6,7 @@ para saúde, e gera uma planilha de trabalho e um e-mail de alerta.
 
 **Repositório:** https://github.com/raf7525/desafio_ray
 
-Na amostra versionada (7 dias, 5 UFs, modalidades 6 e 8): **3.683 licitações
+Numa coleta de 7 dias (5 UFs, modalidades 6 e 8): **3.683 licitações
 analisadas**, **41 aprovadas** (1,1%), **32 mandadas para revisão humana**.
 
 ```
@@ -33,15 +33,16 @@ python main.py
 
 A API do PNCP é pública — não há chave, senha ou `.env` para configurar.
 
-**Para ver funcionando em 1 segundo, sem esperar a coleta:**
+A coleta são ~150 requisições à API, alguns minutos. Ela grava o JSON bruto em
+`data/raw/AAAA-MM-DD/`, e a partir daí dá para reprocessar o disco **em 1 segundo**,
+sem tocar na rede:
 
 ```bash
-python main.py --reprocessar data/raw/demo_pe
+python main.py --reprocessar data/raw/2026-09-15    # a pasta que a coleta criou
 ```
 
-Usa a amostra de bruto versionada e gera as duas entregas em `output/`. A coleta
-real são ~150 requisições; reprocessar o disco leva 1 segundo — foi por essa rota
-que as palavras-chave foram ajustadas.
+Foi por essa rota que as palavras-chave foram ajustadas. `data/` não é versionado:
+os dados são gerados na sua máquina ao rodar.
 
 Outras opções: `--dias 30` (janela maior), `--saida DIR`, `--banco ARQUIVO`,
 `--destaques N` (quantas oportunidades o e-mail mostra).
@@ -70,9 +71,9 @@ desafio_ray/
 │   └── entregas/
 │       ├── planilha.py         .xlsx com 3 abas, formatado para uso direto
 │       └── email_html.py       E-mail de alerta, CSS inline, texto escapado
-├── data/
-│   ├── raw/demo_pe/            amostra de bruto versionada (PE, 11 páginas)
-│   └── processed/              licitacoes.db (gerado, fora do controle de versão)
+├── data/                       gerado ao rodar, fora do controle de versão
+│   ├── raw/AAAA-MM-DD/         JSON bruto da coleta, um arquivo por página
+│   └── processed/              licitacoes.db
 └── output/                     oportunidades.xlsx e alerta.html
 ```
 
