@@ -18,6 +18,20 @@ API do PNCP ──> data/raw/*.json ──> tabela tratada ──> filtro ──
 
 ---
 
+## Declaração uso de IA
+Utilizei o Cloud na estruturação dos códigos, fazer o front-end do email e me ajudar a corrigir e complementar o ReadMe, a parte da lógica da aplicação foi feita por mim, sendo utilizado o cloud apenas para gerar códigos massivos como prints e configurações de palavras (nos arquivos config.py).
+
+
+
+
+
+
+
+
+
+
+
+
 ## Como executar do zero
 
 ```bash
