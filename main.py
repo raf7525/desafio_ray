@@ -1,3 +1,5 @@
+"""Pipeline completo: coleta no PNCP -> filtro -> banco -> planilha e e-mail."""
+
 import argparse
 import logging
 from datetime import date
@@ -5,6 +7,8 @@ from pathlib import Path
 
 import config
 from src.coleta.pncp_client import carregar_bruto, coletar_tudo
+from src.entregas import email_html, planilha
+from src.persistencia import banco
 from src.tratamento.filtro import aplicar, aplicar_valor_minimo
 from src.tratamento.parser import montar_dataframe
 from src.tratamento.pontuacao import calcular as calcular_pontuacao
@@ -16,6 +20,12 @@ def parse_args():
                    help=f"janela de coleta em dias (padrão: {config.DIAS_JANELA})")
     p.add_argument("--reprocessar", metavar="DIR",
                    help="relê o bruto deste diretório em vez de chamar a API")
+    p.add_argument("--saida", default="output", metavar="DIR",
+                   help="onde gravar a planilha e o e-mail (padrão: output)")
+    p.add_argument("--banco", default=banco.CAMINHO_PADRAO, metavar="ARQUIVO",
+                   help=f"arquivo SQLite (padrão: {banco.CAMINHO_PADRAO})")
+    p.add_argument("--destaques", type=int, default=email_html.TOTAL_DESTAQUES,
+                   help="quantas oportunidades o e-mail mostra")
     return p.parse_args()
 
 
@@ -49,6 +59,21 @@ def main():
 
     aprovados = calcular_pontuacao(df[df.destino == "aprovado"], config)
     revisar = df[df.destino == "revisar"]
+
+    # A pontuação só é calculada para as aprovadas, mas o banco guarda a tabela
+    # inteira: o descartado de hoje é a evidência de que o filtro foi ajustado
+    # quando alguém questionar a decisão amanhã.
+    df = df.merge(aprovados[["id_pncp", "eh_capital", "pontuacao"]],
+                  on="id_pncp", how="left")
+    novas, _ = banco.salvar(df, args.banco)
+
+    saida = Path(args.saida)
+    caminho_planilha = planilha.gerar(df, aprovados, revisar, config,
+                                      saida / "oportunidades.xlsx")
+    caminho_email = email_html.gerar(df, aprovados, revisar, config,
+                                     saida / "alerta.html",
+                                     destaques=args.destaques)
+
     #Gerado por IA esse trecho de código:
     print()
     print(f"{'RESULTADO DO FILTRO POR ASSUNTO':^78}")
@@ -57,6 +82,7 @@ def main():
     print(f"  aprovadas    {len(aprovados):>6}  ({len(aprovados)/max(len(df),1):.1%})")
     print(f"  para revisão {len(revisar):>6}  (conflito de palavras-chave)")
     print(f"  descartadas  {len(df) - len(aprovados) - len(revisar):>6}")
+    print(f"  inéditas     {novas:>6}  (não estavam no banco)")
     print("=" * 78)
     print("\n  aprovadas por UF:")
     for uf, n in aprovados.uf.value_counts().items():
@@ -69,6 +95,12 @@ def main():
               f"{r.orgao[:52] if isinstance(r.orgao, str) else ''}")
         print(f"  {' '.join(str(r.objeto).split())[:74]}")
         print(f"  -> {r.evidencia[:74]}\n")
+
+    print(f"{'  ENTREGAS GERADAS  ':=^78}")
+    print(f"  banco     {args.banco}")
+    print(f"  planilha  {caminho_planilha}")
+    print(f"  e-mail    {caminho_email}")
+    print("=" * 78)
 
     return df
 
