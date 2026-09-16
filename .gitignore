@@ -2,7 +2,7 @@
 __pycache__/
 *.pyc
 .env
-data/raw/
+data/raw/*
 !data/raw/demo_pe/
 data/processed/*.db
 PLANO_IMPLEMENTACAO.md

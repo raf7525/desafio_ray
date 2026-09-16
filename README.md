@@ -277,13 +277,30 @@ conversão e viram lixo no lugar de `NULL`.
 
 ## Capturas de tela
 
-**Planilha — aba *Oportunidades***
+### Planilha — aba *Oportunidades*
 
-![Planilha gerada](docs/planilha.png)
+As 41 aprovadas, ordenadas da maior para a menor pontuação. Como não cabem numa
+tela só, seguem em quatro partes.
 
-**E-mail de alerta**
+**Linhas 1–14**
 
-![E-mail de alerta](docs/email.png)
+![Oportunidades, linhas 1 a 14](fotos/1-14.png)
+
+**Linhas 14–26**
+
+![Oportunidades, linhas 14 a 26](fotos/14-26.png)
+
+**Linhas 26–34**
+
+![Oportunidades, linhas 26 a 34](fotos/26-34.png)
+
+**Linhas 34–41**
+
+![Oportunidades, linhas 34 a 41](fotos/34-41.png)
+
+### E-mail de alerta
+
+![E-mail de alerta](fotos/Email.png)
 
 ---
 
